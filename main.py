@@ -3,7 +3,7 @@ from tkinter.filedialog import askopenfilename, asksaveasfilename
 
 
 def open_file(window, text_edit):
-    filepath = askopenfilename(filetypes=[("Text Files", "*.txt")])
+    filepath = askopenfilename(filetypes=[("Python Files", "*.py")])
 
     if not filepath:
         return
