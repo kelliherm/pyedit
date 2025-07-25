@@ -1,51 +1,88 @@
-import tkinter as tk
-from tkinter.filedialog import askopenfilename, asksaveasfilename
+"""
+Code browser example.
+
+Run with:
+
+    python code_browser.py PATH
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+from rich.traceback import Traceback
+
+from textual.app import App, ComposeResult
+from textual.containers import Container, VerticalScroll
+from textual.highlight import highlight
+from textual.reactive import reactive, var
+from textual.widgets import DirectoryTree, Footer, Header, Static
 
 
-def open_file(window, text_edit):
-    filepath = askopenfilename(filetypes=[("Python Files", "*.py")])
+class CodeBrowser(App):
+    """Textual code browser app."""
 
-    if not filepath:
-        return
-    
-    text_edit.delete(1.0, tk.END)
-    with open(filepath, "r") as f:
-        content = f.read()
-        text_edit.insert(tk.END, content)
-    window.title(f"Open File: {filepath}")
+    CSS_PATH = "code_browser.tcss"
+    BINDINGS = [
+        ("f", "toggle_files", "Toggle Files"),
+        ("q", "quit", "Quit"),
+    ]
 
-def save_file(window, text_edit):
-    filepath = askopenfilename(filetypes=[("Text Files", "*.txt")])
+    show_tree = var(True)
+    path: reactive[str | None] = reactive(None)
 
-    if not filepath:
-        return
+    def watch_show_tree(self, show_tree: bool) -> None:
+        """Called when show_tree is modified."""
+        self.set_class(show_tree, "-show-tree")
 
-    with open(filepath, "w") as f:
-        content = text_edit.get(1.0, tk.END)
-        f.write(content)
-    window.title(f"Open File: {filepath}")
+    def compose(self) -> ComposeResult:
+        """Compose our UI."""
+        path = "./" if len(sys.argv) < 2 else sys.argv[1]
+        yield Header()
+        with Container():
+            yield DirectoryTree(path, id="tree-view")
+            with VerticalScroll(id="code-view"):
+                yield Static(id="code", expand=True)
+        yield Footer()
 
-def main():
-    window = tk.Tk()
-    window.title("pyEdit")
-    window.rowconfigure(0, minsize=400)
-    window.columnconfigure(1, minsize=500)
+    def on_mount(self) -> None:
+        self.query_one(DirectoryTree).focus()
 
-    text_edit = tk.Text(window, font="Helvetica 18")
-    text_edit.grid(row=0, column=1)
+        def theme_change(_signal) -> None:
+            """Force the syntax to use a different theme."""
+            self.watch_path(self.path)
 
-    frame = tk.Frame(window, relief=tk.RAISED, bd=2)
-    save_button = tk.Button(frame, text="Save", command=lambda: save_file(window, text_edit))
-    open_button = tk.Button(frame, text="Open", command=lambda: open_file(window, text_edit) )
+        self.theme_changed_signal.subscribe(self, theme_change)
 
-    save_button.grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-    open_button.grid(row=1, column=0, padx=5, sticky="ew")
-    frame.grid(row=0, column=0, sticky="ns")
+    def on_directory_tree_file_selected(
+        self, event: DirectoryTree.FileSelected
+    ) -> None:
+        """Called when the user click a file in the directory tree."""
+        event.stop()
+        self.path = str(event.path)
 
-    window.bind("<Control-s>", lambda x: save_file(window, text_edit))
-    window.bind("<Control-o>", lambda x: open_file(window, text_edit))
+    def watch_path(self, path: str | None) -> None:
+        """Called when path changes."""
+        code_view = self.query_one("#code", Static)
+        if path is None:
+            code_view.update("")
+            return
+        try:
+            code = Path(path).read_text(encoding="utf-8")
+            syntax = highlight(code, path=path)
+        except Exception:
+            code_view.update(Traceback(theme="github-dark", width=None))
+            self.sub_title = "ERROR"
+        else:
+            code_view.update(syntax)
+            self.query_one("#code-view").scroll_home(animate=False)
+            self.sub_title = path
 
-    window.mainloop()
+    def action_toggle_files(self) -> None:
+        """Called in response to key binding."""
+        self.show_tree = not self.show_tree
+
 
 if __name__ == "__main__":
-    main()
+    CodeBrowser().run()
